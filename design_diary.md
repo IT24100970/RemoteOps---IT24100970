@@ -32,7 +32,7 @@ I decided to develop the project incrementally and create meaningful Git commits
 Obstacle:
 GitHub HTTPS authentication initially failed because password authentication is not supported. I solved this by configuring SSH authentication and successfully pushed the repository to GitHub.
 
-## Step 2 - Basic TCP Agent Server
+## Step 2 - TCP Agent Server
 Date: 05 Oct 2026
 
 I started implementing the RemoteOps Agent in C using the BSD socket API.
@@ -46,4 +46,26 @@ The Agent currently:
 
 Decision:
 I used TCP because the RemoteOps control channel requires reliable and ordered communication.
+
+## Step 3 - TCP Controller CLient
+date 05 Oct 2026
+
+I implemented the initial Controller Client
+
+Contriller:
+- Creates IPv4 TCP socket using socket()
+- Configures agent IP address as 127.0.0.1.
+- Uses personalized Agent TCP port 9410
+- Connects to the Agent using connect().
+- Displays confirmation when TCP connection is established successfully.
+- Closes the socket cleanlt after test.
+
+Testing:
+I started agent_970 in one terminal & controller_970 in another yerminal.
+
+Controller successfully connected Agent on:
+127.0.0.1:9410
+Agent also displayed controller IP address & source port.
+
+ 
 
