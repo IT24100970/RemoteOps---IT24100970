@@ -89,3 +89,30 @@ An incorrect token was rejected with AUTH_FAILED.
 Decision:
 Authentication is implemented before other RemoteOps commands because the protocol requires AUTH to be the first command on a new connection.
 
+
+## Step 5 - Persistent Command Loop and SYSINFO
+Date 06 Oct 2026
+
+I extended the RemoteOps Agent and Controller so that an authenticated Controller can remain connected and issue multiple commands.
+
+A recv_line() function was introduced to read newline-terminated protocol commands. This was necessary because TCP is stream-oriented and a single recv() call cannot be assumed to contain exactly one complete command.
+
+A send_all() function was also introduced to ensure that complete responses are transmitted.
+
+SYSINFO Implementation:
+The Agent reads Linux system information from:
+- /proc/loadavg for CPU load
+- /proc/meminfo for memory usage
+- /proc/uptime for system uptime
+
+The response follows the required format:
+OK SYSINFO <cpu_load> <mem_used_mb> <uptime_sec> SID:0790
+
+I also implemented QUIT, which returns:   OK BYE SID:0790
+
+Testing:
+I successfully authenticated, executed SYSINFO multiple times within the same TCP session, tested an unsupported command, and used QUIT to close the connection cleanly.
+
+Decision:
+Linux /proc files were used because they provide current system information without requiring external libraries.
+

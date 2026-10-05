@@ -9,6 +9,151 @@
 #define BACKLOG 5
 #define AUTH_TOKEN "OPS-0970"
 #define SID_TAG "SID:0790"
+#define BUFFER_SIZE 1024
+
+int recv_line(int sockfd, char *buffer, int max_size)
+{
+    int index = 0;
+    char ch;
+    int n;
+
+    while (index < max_size - 1)
+    {
+        n = recv(sockfd, &ch, 1, 0);
+
+        if (n == 0)
+        {
+            return 0;
+        }
+
+        if (n < 0)
+        {
+            return -1;
+        }
+
+        if (ch == '\n')
+        {
+            break;
+        }
+
+        if (ch != '\r')
+        {
+            buffer[index++] = ch;
+        }
+    }
+
+    buffer[index] = '\0';
+
+    return index;
+}
+
+
+/*
+ * Send the complete response even if send()
+ * transmits only part of the buffer.
+ */
+int send_all(int sockfd, const char *buffer, int length)
+{
+    int total_sent = 0;
+
+    while (total_sent < length)
+    {
+        int sent = send(sockfd,
+                        buffer + total_sent,
+                        length - total_sent,
+                        0);
+
+        if (sent <= 0)
+        {
+            return -1;
+        }
+
+        total_sent += sent;
+    }
+
+    return total_sent;
+}
+
+
+/* Read Linux system information */
+void get_system_info(double *cpu_load,
+                     long *memory_used_mb,
+                     long *uptime_sec)
+{
+    FILE *fp;
+
+    /* CPU load */
+    fp = fopen("/proc/loadavg", "r");
+
+    if (fp != NULL)
+    {
+        fscanf(fp, "%lf", cpu_load);
+        fclose(fp);
+    }
+    else
+    {
+        *cpu_load = 0.0;
+    }
+
+
+    /* Memory information */
+    long mem_total = 0;
+    long mem_available = 0;
+
+    fp = fopen("/proc/meminfo", "r");
+
+    if (fp != NULL)
+    {
+        char key[64];
+        long value;
+        char unit[32];
+
+        while (fscanf(fp,
+                      "%63s %ld %31s",
+                      key,
+                      &value,
+                      unit) == 3)
+        {
+            if (strcmp(key, "MemTotal:") == 0)
+            {
+                mem_total = value;
+            }
+            else if (strcmp(key, "MemAvailable:") == 0)
+            {
+                mem_available = value;
+            }
+
+            if (mem_total > 0 && mem_available > 0)
+            {
+                break;
+            }
+        }
+
+        fclose(fp);
+    }
+
+    *memory_used_mb =
+        (mem_total - mem_available) / 1024;
+
+
+    /* System uptime */
+    double uptime;
+
+    fp = fopen("/proc/uptime", "r");
+
+    if (fp != NULL)
+    {
+        fscanf(fp, "%lf", &uptime);
+        fclose(fp);
+
+        *uptime_sec = (long)uptime;
+    }
+    else
+    {
+        *uptime_sec = 0;
+    }
+}
+
 
 int main(void)
 {
@@ -19,11 +164,18 @@ int main(void)
     struct sockaddr_in server_addr;
     struct sockaddr_in client_addr;
 
-    socklen_t client_len = sizeof(client_addr);
+    socklen_t client_len =
+        sizeof(client_addr);
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
+    char response[BUFFER_SIZE];
 
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    /* Create TCP socket */
+    server_fd =
+        socket(AF_INET,
+               SOCK_STREAM,
+               0);
 
     if (server_fd < 0)
     {
@@ -31,6 +183,8 @@ int main(void)
         return 1;
     }
 
+
+    /* Allow port reuse */
     if (setsockopt(server_fd,
                    SOL_SOCKET,
                    SO_REUSEADDR,
@@ -42,12 +196,22 @@ int main(void)
         return 1;
     }
 
-    memset(&server_addr, 0, sizeof(server_addr));
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
+    memset(&server_addr,
+           0,
+           sizeof(server_addr));
 
+    server_addr.sin_family =
+        AF_INET;
+
+    server_addr.sin_addr.s_addr =
+        INADDR_ANY;
+
+    server_addr.sin_port =
+        htons(PORT);
+
+
+    /* Bind to personalised port */
     if (bind(server_fd,
              (struct sockaddr *)&server_addr,
              sizeof(server_addr)) < 0)
@@ -57,18 +221,25 @@ int main(void)
         return 1;
     }
 
-    if (listen(server_fd, BACKLOG) < 0)
+
+    if (listen(server_fd,
+               BACKLOG) < 0)
     {
         perror("listen");
         close(server_fd);
         return 1;
     }
 
-    printf("RemoteOps Agent listening on port %d...\n", PORT);
 
-    client_fd = accept(server_fd,
-                       (struct sockaddr *)&client_addr,
-                       &client_len);
+    printf("RemoteOps Agent listening on port %d...\n",
+           PORT);
+
+
+    /* Accept Controller */
+    client_fd =
+        accept(server_fd,
+               (struct sockaddr *)&client_addr,
+               &client_len);
 
     if (client_fd < 0)
     {
@@ -77,56 +248,161 @@ int main(void)
         return 1;
     }
 
+
     printf("Controller connected from %s:%d\n",
            inet_ntoa(client_addr.sin_addr),
            ntohs(client_addr.sin_port));
 
-    memset(buffer, 0, sizeof(buffer));
 
-    int bytes_received = recv(client_fd,
-                              buffer,
-                              sizeof(buffer) - 1,
-                              0);
+    /* -------------------------
+       Authentication
+       ------------------------- */
 
-    if (bytes_received <= 0)
+    int received =
+        recv_line(client_fd,
+                  buffer,
+                  sizeof(buffer));
+
+    if (received <= 0)
     {
         printf("Controller disconnected before authentication.\n");
+
         close(client_fd);
         close(server_fd);
+
         return 0;
     }
 
-    buffer[bytes_received] = '\0';
 
-    /* Remove newline if present */
-    buffer[strcspn(buffer, "\r\n")] = '\0';
+    printf("Received: %s\n",
+           buffer);
 
-    printf("Received command: %s\n", buffer);
 
-    if (strcmp(buffer, "AUTH " AUTH_TOKEN) == 0)
+    if (strcmp(buffer,
+               "AUTH " AUTH_TOKEN) != 0)
     {
-        const char *response =
-            "OK AUTHENTICATED " SID_TAG "\n";
+        snprintf(response,
+                 sizeof(response),
+                 "ERR 001 AUTH_FAILED %s\n",
+                 SID_TAG);
 
-        send(client_fd,
-             response,
-             strlen(response),
-             0);
-
-        printf("Authentication successful.\n");
-    }
-    else
-    {
-        const char *response =
-            "ERR 001 AUTH_FAILED " SID_TAG "\n";
-
-        send(client_fd,
-             response,
-             strlen(response),
-             0);
+        send_all(client_fd,
+                 response,
+                 strlen(response));
 
         printf("Authentication failed.\n");
+
+        close(client_fd);
+        close(server_fd);
+
+        return 0;
     }
+
+
+    snprintf(response,
+             sizeof(response),
+             "OK AUTHENTICATED %s\n",
+             SID_TAG);
+
+    send_all(client_fd,
+             response,
+             strlen(response));
+
+    printf("Authentication successful.\n");
+
+
+    /* -------------------------
+       Command loop
+       ------------------------- */
+
+    while (1)
+    {
+        received =
+            recv_line(client_fd,
+                      buffer,
+                      sizeof(buffer));
+
+        if (received == 0)
+        {
+            printf("Controller disconnected.\n");
+            break;
+        }
+
+        if (received < 0)
+        {
+            perror("recv");
+            break;
+        }
+
+
+        printf("Received command: %s\n",
+               buffer);
+
+
+        /* SYSINFO */
+        if (strcmp(buffer,
+                   "SYSINFO") == 0)
+        {
+            double cpu_load;
+            long memory_used_mb;
+            long uptime_sec;
+
+            get_system_info(
+                &cpu_load,
+                &memory_used_mb,
+                &uptime_sec);
+
+
+            snprintf(
+                response,
+                sizeof(response),
+                "OK SYSINFO %.2f %ld %ld %s\n",
+                cpu_load,
+                memory_used_mb,
+                uptime_sec,
+                SID_TAG);
+
+
+            send_all(client_fd,
+                     response,
+                     strlen(response));
+        }
+
+
+        /* QUIT */
+        else if (strcmp(buffer,
+                        "QUIT") == 0)
+        {
+            snprintf(response,
+                     sizeof(response),
+                     "OK BYE %s\n",
+                     SID_TAG);
+
+            send_all(client_fd,
+                     response,
+                     strlen(response));
+
+            printf("Controller requested QUIT.\n");
+
+            break;
+        }
+
+
+        /* Unknown command */
+        else
+        {
+            snprintf(
+                response,
+                sizeof(response),
+                "ERR 003 UNKNOWN_COMMAND %s\n",
+                SID_TAG);
+
+            send_all(client_fd,
+                     response,
+                     strlen(response));
+        }
+    }
+
 
     close(client_fd);
     close(server_fd);
