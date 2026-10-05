@@ -67,5 +67,25 @@ Controller successfully connected Agent on:
 127.0.0.1:9410
 Agent also displayed controller IP address & source port.
 
- 
+## Step 4 - Authentication
+Date 06 Oct 2026
+
+I implemented the AUTH command required by the RemoteOps protocol.
+
+The Controller sends:  AUTH OPS-0970
+
+The Agent checks the received token against the personalised authentication token.
+
+Successful authentication returns:   OK AUTHENTICATED SID:0790
+
+An invalid token returns:   ERR 001 AUTH_FAILED SID:0790
+
+Testing:
+I tested both correct and incorrect authentication tokens.
+
+The valid token OPS-0970 was accepted successfully.
+An incorrect token was rejected with AUTH_FAILED.
+
+Decision:
+Authentication is implemented before other RemoteOps commands because the protocol requires AUTH to be the first command on a new connection.
 
