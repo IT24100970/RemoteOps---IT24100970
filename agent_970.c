@@ -47,6 +47,47 @@ int recv_line(int sockfd, char *buffer, int max_size)
     return index;
 }
 
+void get_process_list(char *output, int max_size)
+{
+    FILE *fp;
+
+    output[0] = '\0';
+
+    fp = popen("ps -eo pid,comm --no-headers", "r");
+
+    if (fp == NULL)
+    {
+        snprintf(output,
+                 max_size,
+                 "PROCESS_LIST_UNAVAILABLE");
+
+        return;
+    }
+
+    char line[128];
+
+    while (fgets(line,
+                 sizeof(line),
+                 fp) != NULL)
+    {
+        line[strcspn(line, "\r\n")] = '\0';
+
+        if ((int)(strlen(output) +
+                  strlen(line) + 2) >= max_size)
+        {
+            break;
+        }
+
+        if (strlen(output) > 0)
+        {
+            strcat(output, ",");
+        }
+
+        strcat(output, line);
+    }
+
+    pclose(fp);
+}
 
 /*
  * Send the complete response even if send()
@@ -368,7 +409,24 @@ int main(void)
                      strlen(response));
         }
 
+        else if (strcmp(buffer,
+                "LISTPROC") == 0)
+{
+    char process_list[4096];
 
+    get_process_list(process_list,
+                     sizeof(process_list));
+
+    snprintf(response,
+             sizeof(response),
+             "OK PROCS %.850s %s\n",
+             process_list,
+             SID_TAG);
+
+    send_all(client_fd,
+             response,
+             strlen(response));
+}
         /* QUIT */
         else if (strcmp(buffer,
                         "QUIT") == 0)

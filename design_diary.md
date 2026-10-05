@@ -116,3 +116,23 @@ I successfully authenticated, executed SYSINFO multiple times within the same TC
 Decision:
 Linux /proc files were used because they provide current system information without requiring external libraries.
 
+## Step 6 - LISTPROC Command
+Date 06 Oct 2026
+
+I implemented the LISTPROC command in the RemoteOps Agent.
+
+The Agent uses popen() to execute:   ps -eo pid,comm --no-headers
+
+The output is read line by line and converted into a comma-separated process list.
+
+The protocol response follows the required format:
+
+OK PROCS <process list> SID:0790
+
+Testing:
+I authenticated using the Controller and executed LISTPROC successfully. The Agent returned a snapshot of currently running Linux processes.
+
+I also tested SYSINFO, LISTPROC and QUIT within the same authenticated TCP connection.
+
+Decision:
+I used popen() because it allows the Agent to execute the Linux ps command and capture the output directly for inclusion in the protocol response.
