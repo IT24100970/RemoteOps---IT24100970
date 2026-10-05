@@ -136,3 +136,39 @@ I also tested SYSINFO, LISTPROC and QUIT within the same authenticated TCP conne
 
 Decision:
 I used popen() because it allows the Agent to execute the Linux ps command and capture the output directly for inclusion in the protocol response.
+
+
+## Step 7 - Restricted EXEC Command
+Date: 06 Oct 2026
+
+I implemented the EXEC command using the fixed whitelist required by the assignment.
+
+Supported commands:
+- DATE
+- UPTIME
+- DISKFREE
+- HOSTNAME
+- WHOAMI
+
+Each protocol command is mapped to a fixed Linux shell command.
+
+Valid requests return:
+
+OK EXEC_RESULT <output> SID:0790
+
+Any command outside the whitelist returns:
+
+ERR 002 COMMAND_NOT_ALLOWED SID:0790
+
+Testing:
+I successfully tested all five approved EXEC commands.
+
+I also tested rejected commands such as:
+
+EXEC LS
+EXEC RM
+
+Both were rejected correctly.
+
+Decision:
+I used a fixed mapping instead of executing arbitrary Controller input because unrestricted remote command execution would create a serious security risk and would violate the assignment specification.

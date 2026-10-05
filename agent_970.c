@@ -11,6 +11,7 @@
 #define SID_TAG "SID:0790"
 #define BUFFER_SIZE 1024
 
+
 int recv_line(int sockfd, char *buffer, int max_size)
 {
     int index = 0;
@@ -46,6 +47,104 @@ int recv_line(int sockfd, char *buffer, int max_size)
 
     return index;
 }
+
+
+int send_all(int sockfd, const char *buffer, int length)
+{
+    int total_sent = 0;
+
+    while (total_sent < length)
+    {
+        int sent = send(sockfd,
+                        buffer + total_sent,
+                        length - total_sent,
+                        0);
+
+        if (sent <= 0)
+        {
+            return -1;
+        }
+
+        total_sent += sent;
+    }
+
+    return total_sent;
+}
+
+
+void get_system_info(double *cpu_load,
+                     long *memory_used_mb,
+                     long *uptime_sec)
+{
+    FILE *fp;
+
+    fp = fopen("/proc/loadavg", "r");
+
+    if (fp != NULL)
+    {
+        fscanf(fp, "%lf", cpu_load);
+        fclose(fp);
+    }
+    else
+    {
+        *cpu_load = 0.0;
+    }
+
+    long mem_total = 0;
+    long mem_available = 0;
+
+    fp = fopen("/proc/meminfo", "r");
+
+    if (fp != NULL)
+    {
+        char key[64];
+        long value;
+        char unit[32];
+
+        while (fscanf(fp,
+                      "%63s %ld %31s",
+                      key,
+                      &value,
+                      unit) == 3)
+        {
+            if (strcmp(key, "MemTotal:") == 0)
+            {
+                mem_total = value;
+            }
+            else if (strcmp(key, "MemAvailable:") == 0)
+            {
+                mem_available = value;
+            }
+
+            if (mem_total > 0 && mem_available > 0)
+            {
+                break;
+            }
+        }
+
+        fclose(fp);
+    }
+
+    *memory_used_mb =
+        (mem_total - mem_available) / 1024;
+
+    double uptime;
+
+    fp = fopen("/proc/uptime", "r");
+
+    if (fp != NULL)
+    {
+        fscanf(fp, "%lf", &uptime);
+        fclose(fp);
+
+        *uptime_sec = (long)uptime;
+    }
+    else
+    {
+        *uptime_sec = 0;
+    }
+}
+
 
 void get_process_list(char *output, int max_size)
 {
@@ -89,110 +188,71 @@ void get_process_list(char *output, int max_size)
     pclose(fp);
 }
 
-/*
- * Send the complete response even if send()
- * transmits only part of the buffer.
- */
-int send_all(int sockfd, const char *buffer, int length)
+
+int execute_whitelisted_command(const char *name,
+                                char *output,
+                                int max_size)
 {
-    int total_sent = 0;
+    const char *shell_command = NULL;
 
-    while (total_sent < length)
+    if (strcmp(name, "DATE") == 0)
     {
-        int sent = send(sockfd,
-                        buffer + total_sent,
-                        length - total_sent,
-                        0);
-
-        if (sent <= 0)
-        {
-            return -1;
-        }
-
-        total_sent += sent;
+        shell_command = "date";
     }
-
-    return total_sent;
-}
-
-
-/* Read Linux system information */
-void get_system_info(double *cpu_load,
-                     long *memory_used_mb,
-                     long *uptime_sec)
-{
-    FILE *fp;
-
-    /* CPU load */
-    fp = fopen("/proc/loadavg", "r");
-
-    if (fp != NULL)
+    else if (strcmp(name, "UPTIME") == 0)
     {
-        fscanf(fp, "%lf", cpu_load);
-        fclose(fp);
+        shell_command = "uptime";
+    }
+    else if (strcmp(name, "DISKFREE") == 0)
+    {
+        shell_command = "df -h /";
+    }
+    else if (strcmp(name, "HOSTNAME") == 0)
+    {
+        shell_command = "hostname";
+    }
+    else if (strcmp(name, "WHOAMI") == 0)
+    {
+        shell_command = "whoami";
     }
     else
     {
-        *cpu_load = 0.0;
+        return 0;
     }
 
+    FILE *fp = popen(shell_command, "r");
 
-    /* Memory information */
-    long mem_total = 0;
-    long mem_available = 0;
-
-    fp = fopen("/proc/meminfo", "r");
-
-    if (fp != NULL)
+    if (fp == NULL)
     {
-        char key[64];
-        long value;
-        char unit[32];
+        snprintf(output,
+                 max_size,
+                 "EXECUTION_FAILED");
 
-        while (fscanf(fp,
-                      "%63s %ld %31s",
-                      key,
-                      &value,
-                      unit) == 3)
+        return -1;
+    }
+
+    output[0] = '\0';
+
+    char line[256];
+
+    while (fgets(line,
+                 sizeof(line),
+                 fp) != NULL)
+    {
+        line[strcspn(line, "\r\n")] = ' ';
+
+        if ((int)(strlen(output) +
+                  strlen(line) + 1) >= max_size)
         {
-            if (strcmp(key, "MemTotal:") == 0)
-            {
-                mem_total = value;
-            }
-            else if (strcmp(key, "MemAvailable:") == 0)
-            {
-                mem_available = value;
-            }
-
-            if (mem_total > 0 && mem_available > 0)
-            {
-                break;
-            }
+            break;
         }
 
-        fclose(fp);
+        strcat(output, line);
     }
 
-    *memory_used_mb =
-        (mem_total - mem_available) / 1024;
+    pclose(fp);
 
-
-    /* System uptime */
-    double uptime;
-
-    fp = fopen("/proc/uptime", "r");
-
-    if (fp != NULL)
-    {
-        fscanf(fp, "%lf", &uptime);
-        fclose(fp);
-
-        *uptime_sec = (long)uptime;
-    }
-    else
-    {
-        *uptime_sec = 0;
-    }
+    return 1;
 }
 
 
@@ -211,8 +271,6 @@ int main(void)
     char buffer[BUFFER_SIZE];
     char response[BUFFER_SIZE];
 
-
-    /* Create TCP socket */
     server_fd =
         socket(AF_INET,
                SOCK_STREAM,
@@ -224,8 +282,6 @@ int main(void)
         return 1;
     }
 
-
-    /* Allow port reuse */
     if (setsockopt(server_fd,
                    SOL_SOCKET,
                    SO_REUSEADDR,
@@ -236,7 +292,6 @@ int main(void)
         close(server_fd);
         return 1;
     }
-
 
     memset(&server_addr,
            0,
@@ -251,8 +306,6 @@ int main(void)
     server_addr.sin_port =
         htons(PORT);
 
-
-    /* Bind to personalised port */
     if (bind(server_fd,
              (struct sockaddr *)&server_addr,
              sizeof(server_addr)) < 0)
@@ -262,7 +315,6 @@ int main(void)
         return 1;
     }
 
-
     if (listen(server_fd,
                BACKLOG) < 0)
     {
@@ -271,12 +323,9 @@ int main(void)
         return 1;
     }
 
-
     printf("RemoteOps Agent listening on port %d...\n",
            PORT);
 
-
-    /* Accept Controller */
     client_fd =
         accept(server_fd,
                (struct sockaddr *)&client_addr,
@@ -289,15 +338,9 @@ int main(void)
         return 1;
     }
 
-
     printf("Controller connected from %s:%d\n",
            inet_ntoa(client_addr.sin_addr),
            ntohs(client_addr.sin_port));
-
-
-    /* -------------------------
-       Authentication
-       ------------------------- */
 
     int received =
         recv_line(client_fd,
@@ -314,10 +357,8 @@ int main(void)
         return 0;
     }
 
-
     printf("Received: %s\n",
            buffer);
-
 
     if (strcmp(buffer,
                "AUTH " AUTH_TOKEN) != 0)
@@ -339,7 +380,6 @@ int main(void)
         return 0;
     }
 
-
     snprintf(response,
              sizeof(response),
              "OK AUTHENTICATED %s\n",
@@ -350,11 +390,6 @@ int main(void)
              strlen(response));
 
     printf("Authentication successful.\n");
-
-
-    /* -------------------------
-       Command loop
-       ------------------------- */
 
     while (1)
     {
@@ -375,12 +410,9 @@ int main(void)
             break;
         }
 
-
         printf("Received command: %s\n",
                buffer);
 
-
-        /* SYSINFO */
         if (strcmp(buffer,
                    "SYSINFO") == 0)
         {
@@ -393,7 +425,6 @@ int main(void)
                 &memory_used_mb,
                 &uptime_sec);
 
-
             snprintf(
                 response,
                 sizeof(response),
@@ -403,31 +434,73 @@ int main(void)
                 uptime_sec,
                 SID_TAG);
 
-
             send_all(client_fd,
                      response,
                      strlen(response));
         }
 
         else if (strcmp(buffer,
-                "LISTPROC") == 0)
-{
-    char process_list[4096];
+                        "LISTPROC") == 0)
+        {
+            char process_list[4096];
 
-    get_process_list(process_list,
-                     sizeof(process_list));
+            get_process_list(process_list,
+                             sizeof(process_list));
 
-    snprintf(response,
-             sizeof(response),
-             "OK PROCS %.850s %s\n",
-             process_list,
-             SID_TAG);
+            snprintf(response,
+                     sizeof(response),
+                     "OK PROCS %.850s %s\n",
+                     process_list,
+                     SID_TAG);
 
-    send_all(client_fd,
-             response,
-             strlen(response));
-}
-        /* QUIT */
+            send_all(client_fd,
+                     response,
+                     strlen(response));
+        }
+
+        else if (strncmp(buffer,
+                         "EXEC ",
+                         5) == 0)
+        {
+            const char *command_name =
+                buffer + 5;
+
+            char exec_output[768];
+
+            int result =
+                execute_whitelisted_command(
+                    command_name,
+                    exec_output,
+                    sizeof(exec_output));
+
+            if (result == 1)
+            {
+                snprintf(response,
+                         sizeof(response),
+                         "OK EXEC_RESULT %.700s %s\n",
+                         exec_output,
+                         SID_TAG);
+            }
+            else if (result == 0)
+            {
+                snprintf(response,
+                         sizeof(response),
+                         "ERR 002 COMMAND_NOT_ALLOWED %s\n",
+                         SID_TAG);
+            }
+            else
+            {
+                snprintf(response,
+                         sizeof(response),
+                         "ERR 006 EXECUTION_FAILED %s\n",
+                         SID_TAG);
+            }
+
+            send_all(client_fd,
+                     response,
+                     strlen(response));
+        }
+
         else if (strcmp(buffer,
                         "QUIT") == 0)
         {
@@ -445,8 +518,6 @@ int main(void)
             break;
         }
 
-
-        /* Unknown command */
         else
         {
             snprintf(
@@ -460,7 +531,6 @@ int main(void)
                      strlen(response));
         }
     }
-
 
     close(client_fd);
     close(server_fd);
