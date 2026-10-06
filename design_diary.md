@@ -224,3 +224,26 @@ I used cmp and SHA-256 hashes to verify that the downloaded file was byte-for-by
 I also tested a missing file request and confirmed that the Agent returned:
 
 ERR 005 FILE_NOT_FOUND SID:0790
+
+
+## Step 10 - UDP Periodic Monitoring
+Date 06 Oct 2026
+
+I implemented periodic UDP monitoring using MONITOR START and MONITOR STOP.
+
+The Controller opens a UDP socket on port 9500 and sends:
+
+MONITOR START 9500
+
+The Agent starts a separate monitoring thread and periodically sends system statistics to the Controller using UDP.
+
+The datagram format is:
+
+SYSINFO <0.15> <2540> <92978> SID:0790
+
+A monitoring interval of 3 seconds was selected.
+
+MONITOR STOP terminates the monitoring thread and stops further UDP datagrams.
+
+Testing:
+I successfully received multiple UDP SYSINFO datagrams while the TCP control connection remained active. After MONITOR STOP, the periodic messages stopped.
