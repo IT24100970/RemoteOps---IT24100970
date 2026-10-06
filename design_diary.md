@@ -199,3 +199,28 @@ A maximum file size of 10 MB was selected as an implementation assumption.
 Testing:
 I uploaded test.txt and confirmed that it appeared inside the personalised storage directory. I used cmp / SHA-256 verification to confirm that the stored file was identical to the original.
 
+## Step 9 - GET File Download
+Date 06 Oct 2026
+
+I implemented the GET command so that the Controller can retrieve a previously uploaded file from the Agent.
+
+The Controller sends:
+
+GET <tst.txt>
+
+If the file exists, the Agent responds with:
+
+OK FILE_SEND <test.txt> <42 bytes> SID:0790
+
+The Agent then sends exactly the specified number of raw file bytes.
+
+The Controller saves the received file using a downloaded_ prefix.
+
+Testing:
+I downloaded test.txt and saved it as downloaded_test.txt.
+
+I used cmp and SHA-256 hashes to verify that the downloaded file was byte-for-byte identical to the original.
+
+I also tested a missing file request and confirmed that the Agent returned:
+
+ERR 005 FILE_NOT_FOUND SID:0790

@@ -7,78 +7,19 @@
 
 #define PORT 9410
 #define BACKLOG 5
+
 #define AUTH_TOKEN "OPS-0970"
 #define SID_TAG "SID:0790"
+
 #define BUFFER_SIZE 1024
+
 #define STORAGE_DIR "./agentfiles/IT24100970/"
 #define MAX_FILE_SIZE (10 * 1024 * 1024)
 
-int is_safe_filename(const char *filename)
-{
-    if (filename == NULL || strlen(filename) == 0)
-    {
-        return 0;
-    }
 
-    if (strstr(filename, "..") != NULL)
-    {
-        return 0;
-    }
-
-    if (strchr(filename, '/') != NULL)
-    {
-        return 0;
-    }
-
-    return 1;
-}
-
-int receive_file_bytes(int sockfd,
-                       FILE *fp,
-                       long filesize)
-{
-    char file_buffer[4096];
-
-    long total_received = 0;
-
-    while (total_received < filesize)
-    {
-        long remaining =
-            filesize - total_received;
-
-        int to_receive =
-            remaining < sizeof(file_buffer)
-            ? (int)remaining
-            : sizeof(file_buffer);
-
-        int received =
-            recv(sockfd,
-                 file_buffer,
-                 to_receive,
-                 0);
-
-        if (received <= 0)
-        {
-            return -1;
-        }
-
-        size_t written =
-            fwrite(file_buffer,
-                   1,
-                   received,
-                   fp);
-
-        if (written != (size_t)received)
-        {
-            return -1;
-        }
-
-        total_received += received;
-    }
-
-    return 0;
-}
-
+/* --------------------------------------------------
+   Receive one newline-terminated protocol line
+   -------------------------------------------------- */
 int recv_line(int sockfd, char *buffer, int max_size)
 {
     int index = 0;
@@ -116,6 +57,9 @@ int recv_line(int sockfd, char *buffer, int max_size)
 }
 
 
+/* --------------------------------------------------
+   Send all bytes in a buffer
+   -------------------------------------------------- */
 int send_all(int sockfd, const char *buffer, int length)
 {
     int total_sent = 0;
@@ -139,12 +83,16 @@ int send_all(int sockfd, const char *buffer, int length)
 }
 
 
+/* --------------------------------------------------
+   Read CPU, memory and uptime
+   -------------------------------------------------- */
 void get_system_info(double *cpu_load,
                      long *memory_used_mb,
                      long *uptime_sec)
 {
     FILE *fp;
 
+    /* CPU load */
     fp = fopen("/proc/loadavg", "r");
 
     if (fp != NULL)
@@ -157,6 +105,8 @@ void get_system_info(double *cpu_load,
         *cpu_load = 0.0;
     }
 
+
+    /* Memory */
     long mem_total = 0;
     long mem_available = 0;
 
@@ -183,7 +133,8 @@ void get_system_info(double *cpu_load,
                 mem_available = value;
             }
 
-            if (mem_total > 0 && mem_available > 0)
+            if (mem_total > 0 &&
+                mem_available > 0)
             {
                 break;
             }
@@ -195,7 +146,9 @@ void get_system_info(double *cpu_load,
     *memory_used_mb =
         (mem_total - mem_available) / 1024;
 
-    double uptime;
+
+    /* Uptime */
+    double uptime = 0;
 
     fp = fopen("/proc/uptime", "r");
 
@@ -213,6 +166,9 @@ void get_system_info(double *cpu_load,
 }
 
 
+/* --------------------------------------------------
+   Get running process list
+   -------------------------------------------------- */
 void get_process_list(char *output, int max_size)
 {
     FILE *fp;
@@ -256,6 +212,9 @@ void get_process_list(char *output, int max_size)
 }
 
 
+/* --------------------------------------------------
+   Execute only the fixed whitelist
+   -------------------------------------------------- */
 int execute_whitelisted_command(const char *name,
                                 char *output,
                                 int max_size)
@@ -323,6 +282,142 @@ int execute_whitelisted_command(const char *name,
 }
 
 
+/* --------------------------------------------------
+   Check uploaded/downloaded filename
+   -------------------------------------------------- */
+int is_safe_filename(const char *filename)
+{
+    if (filename == NULL ||
+        strlen(filename) == 0)
+    {
+        return 0;
+    }
+
+    if (strstr(filename, "..") != NULL)
+    {
+        return 0;
+    }
+
+    if (strchr(filename, '/') != NULL)
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+
+/* --------------------------------------------------
+   Receive exactly filesize raw bytes
+   -------------------------------------------------- */
+int receive_file_bytes(int sockfd,
+                       FILE *fp,
+                       long filesize)
+{
+    char file_buffer[4096];
+
+    long total_received = 0;
+
+    while (total_received < filesize)
+    {
+        long remaining =
+            filesize - total_received;
+
+        int to_receive;
+
+        if (remaining < (long)sizeof(file_buffer))
+        {
+            to_receive = (int)remaining;
+        }
+        else
+        {
+            to_receive = sizeof(file_buffer);
+        }
+
+        int received =
+            recv(sockfd,
+                 file_buffer,
+                 to_receive,
+                 0);
+
+        if (received <= 0)
+        {
+            return -1;
+        }
+
+        size_t written =
+            fwrite(file_buffer,
+                   1,
+                   received,
+                   fp);
+
+        if (written != (size_t)received)
+        {
+            return -1;
+        }
+
+        total_received += received;
+    }
+
+    return 0;
+}
+
+
+/* --------------------------------------------------
+   Send exactly filesize raw bytes
+   -------------------------------------------------- */
+int send_file_bytes(int sockfd,
+                    FILE *fp,
+                    long filesize)
+{
+    char file_buffer[4096];
+
+    long total_sent = 0;
+
+    while (total_sent < filesize)
+    {
+        long remaining =
+            filesize - total_sent;
+
+        size_t to_read;
+
+        if (remaining < (long)sizeof(file_buffer))
+        {
+            to_read = (size_t)remaining;
+        }
+        else
+        {
+            to_read = sizeof(file_buffer);
+        }
+
+        size_t bytes_read =
+            fread(file_buffer,
+                  1,
+                  to_read,
+                  fp);
+
+        if (bytes_read == 0)
+        {
+            return -1;
+        }
+
+        if (send_all(sockfd,
+                     file_buffer,
+                     (int)bytes_read) < 0)
+        {
+            return -1;
+        }
+
+        total_sent += bytes_read;
+    }
+
+    return 0;
+}
+
+
+/* --------------------------------------------------
+   Main Agent
+   -------------------------------------------------- */
 int main(void)
 {
     int server_fd;
@@ -338,6 +433,8 @@ int main(void)
     char buffer[BUFFER_SIZE];
     char response[BUFFER_SIZE];
 
+
+    /* Create server TCP socket */
     server_fd =
         socket(AF_INET,
                SOCK_STREAM,
@@ -349,6 +446,7 @@ int main(void)
         return 1;
     }
 
+
     if (setsockopt(server_fd,
                    SOL_SOCKET,
                    SO_REUSEADDR,
@@ -359,6 +457,7 @@ int main(void)
         close(server_fd);
         return 1;
     }
+
 
     memset(&server_addr,
            0,
@@ -373,6 +472,7 @@ int main(void)
     server_addr.sin_port =
         htons(PORT);
 
+
     if (bind(server_fd,
              (struct sockaddr *)&server_addr,
              sizeof(server_addr)) < 0)
@@ -382,6 +482,7 @@ int main(void)
         return 1;
     }
 
+
     if (listen(server_fd,
                BACKLOG) < 0)
     {
@@ -390,9 +491,12 @@ int main(void)
         return 1;
     }
 
+
     printf("RemoteOps Agent listening on port %d...\n",
            PORT);
 
+
+    /* Accept Controller */
     client_fd =
         accept(server_fd,
                (struct sockaddr *)&client_addr,
@@ -405,9 +509,15 @@ int main(void)
         return 1;
     }
 
+
     printf("Controller connected from %s:%d\n",
            inet_ntoa(client_addr.sin_addr),
            ntohs(client_addr.sin_port));
+
+
+    /* ==================================================
+       AUTHENTICATION
+       ================================================== */
 
     int received =
         recv_line(client_fd,
@@ -424,8 +534,10 @@ int main(void)
         return 0;
     }
 
+
     printf("Received: %s\n",
            buffer);
+
 
     if (strcmp(buffer,
                "AUTH " AUTH_TOKEN) != 0)
@@ -447,6 +559,7 @@ int main(void)
         return 0;
     }
 
+
     snprintf(response,
              sizeof(response),
              "OK AUTHENTICATED %s\n",
@@ -457,6 +570,11 @@ int main(void)
              strlen(response));
 
     printf("Authentication successful.\n");
+
+
+    /* ==================================================
+       COMMAND LOOP
+       ================================================== */
 
     while (1)
     {
@@ -477,9 +595,14 @@ int main(void)
             break;
         }
 
+
         printf("Received command: %s\n",
                buffer);
 
+
+        /* --------------------------------------------------
+           SYSINFO
+           -------------------------------------------------- */
         if (strcmp(buffer,
                    "SYSINFO") == 0)
         {
@@ -506,25 +629,35 @@ int main(void)
                      strlen(response));
         }
 
+
+        /* --------------------------------------------------
+           LISTPROC
+           -------------------------------------------------- */
         else if (strcmp(buffer,
                         "LISTPROC") == 0)
         {
             char process_list[4096];
 
-            get_process_list(process_list,
-                             sizeof(process_list));
+            get_process_list(
+                process_list,
+                sizeof(process_list));
 
-            snprintf(response,
-                     sizeof(response),
-                     "OK PROCS %.850s %s\n",
-                     process_list,
-                     SID_TAG);
+            snprintf(
+                response,
+                sizeof(response),
+                "OK PROCS %.850s %s\n",
+                process_list,
+                SID_TAG);
 
             send_all(client_fd,
                      response,
                      strlen(response));
         }
 
+
+        /* --------------------------------------------------
+           EXEC
+           -------------------------------------------------- */
         else if (strncmp(buffer,
                          "EXEC ",
                          5) == 0)
@@ -540,168 +673,370 @@ int main(void)
                     exec_output,
                     sizeof(exec_output));
 
+
             if (result == 1)
             {
-                snprintf(response,
-                         sizeof(response),
-                         "OK EXEC_RESULT %.700s %s\n",
-                         exec_output,
-                         SID_TAG);
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "OK EXEC_RESULT %.700s %s\n",
+                    exec_output,
+                    SID_TAG);
             }
+
             else if (result == 0)
             {
-                snprintf(response,
-                         sizeof(response),
-                         "ERR 002 COMMAND_NOT_ALLOWED %s\n",
-                         SID_TAG);
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 002 COMMAND_NOT_ALLOWED %s\n",
+                    SID_TAG);
             }
+
             else
             {
-                snprintf(response,
-                         sizeof(response),
-                         "ERR 006 EXECUTION_FAILED %s\n",
-                         SID_TAG);
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 006 EXECUTION_FAILED %s\n",
+                    SID_TAG);
             }
+
 
             send_all(client_fd,
                      response,
                      strlen(response));
         }
 
-else if (strncmp(buffer,
-                 "PUT ",
-                 4) == 0)
-{
-    char filename[256];
-    long filesize;
 
-    int parsed =
-        sscanf(buffer,
-               "PUT %255s %ld",
-               filename,
-               &filesize);
-
-    if (parsed != 2 || filesize < 0)
-    {
-        snprintf(response,
-                 sizeof(response),
-                 "ERR 007 INVALID_PUT_REQUEST %s\n",
-                 SID_TAG);
-
-        send_all(client_fd,
-                 response,
-                 strlen(response));
-
-        continue;
-    }
-
-    if (!is_safe_filename(filename))
-    {
-        snprintf(response,
-                 sizeof(response),
-                 "ERR 008 INVALID_FILENAME %s\n",
-                 SID_TAG);
-
-        send_all(client_fd,
-                 response,
-                 strlen(response));
-
-        continue;
-    }
-
-    if (filesize > MAX_FILE_SIZE)
-    {
-        snprintf(response,
-                 sizeof(response),
-                 "ERR 004 FILE_TOO_LARGE %s\n",
-                 SID_TAG);
-
-        send_all(client_fd,
-                 response,
-                 strlen(response));
-
-        /*
-         * Close this connection because raw bytes may
-         * already follow the rejected PUT header.
-         */
-        break;
-    }
-
-    char filepath[512];
-
-    snprintf(filepath,
-             sizeof(filepath),
-             "%s%s",
-             STORAGE_DIR,
-             filename);
-
-    FILE *fp =
-        fopen(filepath, "wb");
-
-    if (fp == NULL)
-    {
-        snprintf(response,
-                 sizeof(response),
-                 "ERR 009 FILE_WRITE_ERROR %s\n",
-                 SID_TAG);
-
-        send_all(client_fd,
-                 response,
-                 strlen(response));
-
-        continue;
-    }
-
-    printf("Receiving file: %s (%ld bytes)\n",
-           filename,
-           filesize);
-
-    if (receive_file_bytes(client_fd,
-                           fp,
-                           filesize) < 0)
-    {
-        fclose(fp);
-
-        remove(filepath);
-
-        printf("File transfer failed.\n");
-
-        break;
-    }
-
-    fclose(fp);
-
-    snprintf(response,
-             sizeof(response),
-             "OK FILE_RECEIVED %s %s\n",
-             filename,
-             SID_TAG);
-
-    send_all(client_fd,
-             response,
-             strlen(response));
-
-    printf("File received successfully: %s\n",
-           filepath);
-}
-
-        else if (strcmp(buffer,
-                        "QUIT") == 0)
+        /* --------------------------------------------------
+           PUT - File Upload
+           -------------------------------------------------- */
+        else if (strncmp(buffer,
+                         "PUT ",
+                         4) == 0)
         {
-            snprintf(response,
-                     sizeof(response),
-                     "OK BYE %s\n",
-                     SID_TAG);
+            char filename[256];
+            long filesize;
+
+
+            int parsed =
+                sscanf(buffer,
+                       "PUT %255s %ld",
+                       filename,
+                       &filesize);
+
+
+            if (parsed != 2 ||
+                filesize < 0)
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 007 INVALID_PUT_REQUEST %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            if (!is_safe_filename(filename))
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 008 INVALID_FILENAME %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            if (filesize > MAX_FILE_SIZE)
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 004 FILE_TOO_LARGE %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                break;
+            }
+
+
+            char filepath[512];
+
+            snprintf(filepath,
+                     sizeof(filepath),
+                     "%s%s",
+                     STORAGE_DIR,
+                     filename);
+
+
+            FILE *fp =
+                fopen(filepath,
+                      "wb");
+
+
+            if (fp == NULL)
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 009 FILE_WRITE_ERROR %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            printf("Receiving file: %s (%ld bytes)\n",
+                   filename,
+                   filesize);
+
+
+            if (receive_file_bytes(
+                    client_fd,
+                    fp,
+                    filesize) < 0)
+            {
+                fclose(fp);
+
+                remove(filepath);
+
+                printf("File transfer failed.\n");
+
+                break;
+            }
+
+
+            fclose(fp);
+
+
+            snprintf(
+                response,
+                sizeof(response),
+                "OK FILE_RECEIVED %s %s\n",
+                filename,
+                SID_TAG);
+
 
             send_all(client_fd,
                      response,
                      strlen(response));
+
+
+            printf("File received successfully: %s\n",
+                   filepath);
+        }
+
+
+        /* --------------------------------------------------
+           GET - File Download
+           -------------------------------------------------- */
+        else if (strncmp(buffer,
+                         "GET ",
+                         4) == 0)
+        {
+            char filename[256];
+
+
+            if (sscanf(buffer,
+                       "GET %255s",
+                       filename) != 1)
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 010 INVALID_GET_REQUEST %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            if (!is_safe_filename(filename))
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 008 INVALID_FILENAME %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            char filepath[512];
+
+            snprintf(filepath,
+                     sizeof(filepath),
+                     "%s%s",
+                     STORAGE_DIR,
+                     filename);
+
+
+            FILE *fp =
+                fopen(filepath,
+                      "rb");
+
+
+            if (fp == NULL)
+            {
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 005 FILE_NOT_FOUND %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            if (fseek(fp,
+                      0,
+                      SEEK_END) != 0)
+            {
+                fclose(fp);
+
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 011 FILE_READ_ERROR %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            long filesize =
+                ftell(fp);
+
+
+            if (filesize < 0)
+            {
+                fclose(fp);
+
+                snprintf(
+                    response,
+                    sizeof(response),
+                    "ERR 011 FILE_READ_ERROR %s\n",
+                    SID_TAG);
+
+                send_all(client_fd,
+                         response,
+                         strlen(response));
+
+                continue;
+            }
+
+
+            rewind(fp);
+
+
+            snprintf(
+                response,
+                sizeof(response),
+                "OK FILE_SEND %s %ld %s\n",
+                filename,
+                filesize,
+                SID_TAG);
+
+
+            if (send_all(client_fd,
+                         response,
+                         strlen(response)) < 0)
+            {
+                fclose(fp);
+                break;
+            }
+
+
+            printf("Sending file: %s (%ld bytes)\n",
+                   filename,
+                   filesize);
+
+
+            if (send_file_bytes(
+                    client_fd,
+                    fp,
+                    filesize) < 0)
+            {
+                printf("File download transfer failed.\n");
+
+                fclose(fp);
+
+                break;
+            }
+
+
+            fclose(fp);
+
+
+            printf("File sent successfully: %s\n",
+                   filepath);
+        }
+
+
+        /* --------------------------------------------------
+           QUIT
+           -------------------------------------------------- */
+        else if (strcmp(buffer,
+                        "QUIT") == 0)
+        {
+            snprintf(
+                response,
+                sizeof(response),
+                "OK BYE %s\n",
+                SID_TAG);
+
+
+            send_all(client_fd,
+                     response,
+                     strlen(response));
+
 
             printf("Controller requested QUIT.\n");
 
             break;
         }
 
+
+        /* --------------------------------------------------
+           Unknown command
+           -------------------------------------------------- */
         else
         {
             snprintf(
@@ -710,11 +1045,13 @@ else if (strncmp(buffer,
                 "ERR 003 UNKNOWN_COMMAND %s\n",
                 SID_TAG);
 
+
             send_all(client_fd,
                      response,
                      strlen(response));
         }
     }
+
 
     close(client_fd);
     close(server_fd);
