@@ -10,7 +10,74 @@
 #define AUTH_TOKEN "OPS-0970"
 #define SID_TAG "SID:0790"
 #define BUFFER_SIZE 1024
+#define STORAGE_DIR "./agentfiles/IT24100970/"
+#define MAX_FILE_SIZE (10 * 1024 * 1024)
 
+int is_safe_filename(const char *filename)
+{
+    if (filename == NULL || strlen(filename) == 0)
+    {
+        return 0;
+    }
+
+    if (strstr(filename, "..") != NULL)
+    {
+        return 0;
+    }
+
+    if (strchr(filename, '/') != NULL)
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+int receive_file_bytes(int sockfd,
+                       FILE *fp,
+                       long filesize)
+{
+    char file_buffer[4096];
+
+    long total_received = 0;
+
+    while (total_received < filesize)
+    {
+        long remaining =
+            filesize - total_received;
+
+        int to_receive =
+            remaining < sizeof(file_buffer)
+            ? (int)remaining
+            : sizeof(file_buffer);
+
+        int received =
+            recv(sockfd,
+                 file_buffer,
+                 to_receive,
+                 0);
+
+        if (received <= 0)
+        {
+            return -1;
+        }
+
+        size_t written =
+            fwrite(file_buffer,
+                   1,
+                   received,
+                   fp);
+
+        if (written != (size_t)received)
+        {
+            return -1;
+        }
+
+        total_received += received;
+    }
+
+    return 0;
+}
 
 int recv_line(int sockfd, char *buffer, int max_size)
 {
@@ -500,6 +567,123 @@ int main(void)
                      response,
                      strlen(response));
         }
+
+else if (strncmp(buffer,
+                 "PUT ",
+                 4) == 0)
+{
+    char filename[256];
+    long filesize;
+
+    int parsed =
+        sscanf(buffer,
+               "PUT %255s %ld",
+               filename,
+               &filesize);
+
+    if (parsed != 2 || filesize < 0)
+    {
+        snprintf(response,
+                 sizeof(response),
+                 "ERR 007 INVALID_PUT_REQUEST %s\n",
+                 SID_TAG);
+
+        send_all(client_fd,
+                 response,
+                 strlen(response));
+
+        continue;
+    }
+
+    if (!is_safe_filename(filename))
+    {
+        snprintf(response,
+                 sizeof(response),
+                 "ERR 008 INVALID_FILENAME %s\n",
+                 SID_TAG);
+
+        send_all(client_fd,
+                 response,
+                 strlen(response));
+
+        continue;
+    }
+
+    if (filesize > MAX_FILE_SIZE)
+    {
+        snprintf(response,
+                 sizeof(response),
+                 "ERR 004 FILE_TOO_LARGE %s\n",
+                 SID_TAG);
+
+        send_all(client_fd,
+                 response,
+                 strlen(response));
+
+        /*
+         * Close this connection because raw bytes may
+         * already follow the rejected PUT header.
+         */
+        break;
+    }
+
+    char filepath[512];
+
+    snprintf(filepath,
+             sizeof(filepath),
+             "%s%s",
+             STORAGE_DIR,
+             filename);
+
+    FILE *fp =
+        fopen(filepath, "wb");
+
+    if (fp == NULL)
+    {
+        snprintf(response,
+                 sizeof(response),
+                 "ERR 009 FILE_WRITE_ERROR %s\n",
+                 SID_TAG);
+
+        send_all(client_fd,
+                 response,
+                 strlen(response));
+
+        continue;
+    }
+
+    printf("Receiving file: %s (%ld bytes)\n",
+           filename,
+           filesize);
+
+    if (receive_file_bytes(client_fd,
+                           fp,
+                           filesize) < 0)
+    {
+        fclose(fp);
+
+        remove(filepath);
+
+        printf("File transfer failed.\n");
+
+        break;
+    }
+
+    fclose(fp);
+
+    snprintf(response,
+             sizeof(response),
+             "OK FILE_RECEIVED %s %s\n",
+             filename,
+             SID_TAG);
+
+    send_all(client_fd,
+             response,
+             strlen(response));
+
+    printf("File received successfully: %s\n",
+           filepath);
+}
 
         else if (strcmp(buffer,
                         "QUIT") == 0)

@@ -11,9 +11,8 @@
 #define BUFFER_SIZE 1024
 
 
-int recv_line(int sockfd,
-              char *buffer,
-              int max_size)
+/* Receive one newline-terminated response */
+int recv_line(int sockfd, char *buffer, int max_size)
 {
     int index = 0;
     char ch;
@@ -21,10 +20,7 @@ int recv_line(int sockfd,
 
     while (index < max_size - 1)
     {
-        n = recv(sockfd,
-                 &ch,
-                 1,
-                 0);
+        n = recv(sockfd, &ch, 1, 0);
 
         if (n == 0)
         {
@@ -53,19 +49,17 @@ int recv_line(int sockfd,
 }
 
 
-int send_all(int sockfd,
-             const char *buffer,
-             int length)
+/* Send all bytes in a buffer */
+int send_all(int sockfd, const char *buffer, int length)
 {
     int total_sent = 0;
 
     while (total_sent < length)
     {
-        int sent =
-            send(sockfd,
-                 buffer + total_sent,
-                 length - total_sent,
-                 0);
+        int sent = send(sockfd,
+                        buffer + total_sent,
+                        length - total_sent,
+                        0);
 
         if (sent <= 0)
         {
@@ -79,6 +73,50 @@ int send_all(int sockfd,
 }
 
 
+/* Send exactly filesize bytes from a file */
+int send_file_bytes(int sockfd,
+                    FILE *fp,
+                    long filesize)
+{
+    char file_buffer[4096];
+
+    long total_sent = 0;
+
+    while (total_sent < filesize)
+    {
+        long remaining =
+            filesize - total_sent;
+
+        size_t to_read =
+            remaining < (long)sizeof(file_buffer)
+            ? (size_t)remaining
+            : sizeof(file_buffer);
+
+        size_t bytes_read =
+            fread(file_buffer,
+                  1,
+                  to_read,
+                  fp);
+
+        if (bytes_read == 0)
+        {
+            return -1;
+        }
+
+        if (send_all(sockfd,
+                     file_buffer,
+                     (int)bytes_read) < 0)
+        {
+            return -1;
+        }
+
+        total_sent += bytes_read;
+    }
+
+    return 0;
+}
+
+
 int main(void)
 {
     int sockfd;
@@ -89,10 +127,10 @@ int main(void)
     char command[BUFFER_SIZE];
 
 
-    sockfd =
-        socket(AF_INET,
-               SOCK_STREAM,
-               0);
+    /* Create TCP socket */
+    sockfd = socket(AF_INET,
+                    SOCK_STREAM,
+                    0);
 
     if (sockfd < 0)
     {
@@ -101,6 +139,7 @@ int main(void)
     }
 
 
+    /* Configure Agent address */
     memset(&server_addr,
            0,
            sizeof(server_addr));
@@ -122,6 +161,7 @@ int main(void)
     }
 
 
+    /* Connect to Agent */
     if (connect(sockfd,
                 (struct sockaddr *)&server_addr,
                 sizeof(server_addr)) < 0)
@@ -135,23 +175,31 @@ int main(void)
     printf("Connected to RemoteOps Agent.\n");
 
 
-    /* Authentication */
+    /* -------------------------
+       Authentication
+       ------------------------- */
 
     snprintf(command,
              sizeof(command),
              "AUTH %s\n",
              AUTH_TOKEN);
 
-    send_all(sockfd,
-             command,
-             strlen(command));
+
+    if (send_all(sockfd,
+                 command,
+                 strlen(command)) < 0)
+    {
+        printf("Failed to send authentication command.\n");
+        close(sockfd);
+        return 1;
+    }
 
 
     if (recv_line(sockfd,
                   buffer,
                   sizeof(buffer)) <= 0)
     {
-        printf("No authentication response.\n");
+        printf("No authentication response from Agent.\n");
         close(sockfd);
         return 1;
     }
@@ -173,7 +221,9 @@ int main(void)
     }
 
 
-    /* Command loop */
+    /* -------------------------
+       Command Loop
+       ------------------------- */
 
     while (1)
     {
@@ -187,18 +237,148 @@ int main(void)
         }
 
 
-        /* Make sure command ends with newline */
-        if (strchr(command,
-                   '\n') == NULL)
+        /*
+         * Remove newline temporarily.
+         * This makes command checking easier.
+         */
+        command[strcspn(command, "\r\n")] = '\0';
+
+
+        /* -------------------------
+           PUT FILE UPLOAD
+           ------------------------- */
+
+        if (strncmp(command,
+                    "PUT ",
+                    4) == 0)
         {
-            strcat(command,
-                   "\n");
+            char filename[256];
+
+
+            if (sscanf(command,
+                       "PUT %255s",
+                       filename) != 1)
+            {
+                printf("Usage: PUT <filename>\n");
+                continue;
+            }
+
+
+            /* Open local file */
+            FILE *fp =
+                fopen(filename, "rb");
+
+            if (fp == NULL)
+            {
+                perror("fopen");
+                continue;
+            }
+
+
+            /* Find file size */
+            if (fseek(fp,
+                      0,
+                      SEEK_END) != 0)
+            {
+                perror("fseek");
+                fclose(fp);
+                continue;
+            }
+
+
+            long filesize =
+                ftell(fp);
+
+            if (filesize < 0)
+            {
+                perror("ftell");
+                fclose(fp);
+                continue;
+            }
+
+
+            rewind(fp);
+
+
+            /* Create required protocol header */
+            char put_header[512];
+
+            snprintf(put_header,
+                     sizeof(put_header),
+                     "PUT %s %ld\n",
+                     filename,
+                     filesize);
+
+
+            /* Send PUT header */
+            if (send_all(sockfd,
+                         put_header,
+                         strlen(put_header)) < 0)
+            {
+                printf("Failed to send PUT request.\n");
+
+                fclose(fp);
+                break;
+            }
+
+
+            printf("Uploading %s (%ld bytes)...\n",
+                   filename,
+                   filesize);
+
+
+            /* Send raw file bytes */
+            if (send_file_bytes(sockfd,
+                                fp,
+                                filesize) < 0)
+            {
+                printf("File upload failed.\n");
+
+                fclose(fp);
+                break;
+            }
+
+
+            fclose(fp);
+
+
+            /* Wait for Agent response */
+            if (recv_line(sockfd,
+                          buffer,
+                          sizeof(buffer)) <= 0)
+            {
+                printf("No response from Agent.\n");
+                break;
+            }
+
+
+            printf("Agent: %s\n",
+                   buffer);
+
+
+            continue;
         }
 
 
-        send_all(sockfd,
-                 command,
-                 strlen(command));
+        /* -------------------------
+           Normal text commands
+           ------------------------- */
+
+        char protocol_command[BUFFER_SIZE];
+
+        snprintf(protocol_command,
+                 sizeof(protocol_command),
+                 "%s\n",
+                 command);
+
+
+        if (send_all(sockfd,
+                     protocol_command,
+                     strlen(protocol_command)) < 0)
+        {
+            printf("Failed to send command.\n");
+            break;
+        }
 
 
         if (recv_line(sockfd,
@@ -214,6 +394,7 @@ int main(void)
                buffer);
 
 
+        /* Quit after OK BYE */
         if (strncmp(buffer,
                     "OK BYE",
                     6) == 0)
@@ -229,4 +410,3 @@ int main(void)
 
     return 0;
 }
-

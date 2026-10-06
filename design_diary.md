@@ -172,3 +172,30 @@ Both were rejected correctly.
 
 Decision:
 I used a fixed mapping instead of executing arbitrary Controller input because unrestricted remote command execution would create a serious security risk and would violate the assignment specification.
+
+
+## Step 8 - PUT File Upload
+Date 06 Oct 2026
+
+I implemented the PUT command to allow the Controller to upload files to the Agent.
+
+The Controller opens the requested local file, calculates its size and sends:
+
+PUT <test.txt> <42 bytes>
+
+followed immediately by the raw file bytes.
+
+The Agent receives exactly the declared number of bytes and stores the file under:  ./agentfiles/IT24100970/
+
+A successful transfer returns:
+
+OK FILE_RECEIVED <filename> SID:0790
+
+I implemented a loop for file transfer because TCP is stream-oriented and one recv() call is not guaranteed to return the complete file.
+
+Filename validation was also added to prevent uploaded files from escaping the personalised storage directory.
+A maximum file size of 10 MB was selected as an implementation assumption.
+
+Testing:
+I uploaded test.txt and confirmed that it appeared inside the personalised storage directory. I used cmp / SHA-256 verification to confirm that the stored file was identical to the original.
+
