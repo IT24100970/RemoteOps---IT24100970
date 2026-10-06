@@ -247,3 +247,28 @@ MONITOR STOP terminates the monitoring thread and stops further UDP datagrams.
 
 Testing:
 I successfully received multiple UDP SYSINFO datagrams while the TCP control connection remained active. After MONITOR STOP, the periodic messages stopped.
+
+
+## Step 12 - Timestamped Logging
+Date 07 Oct 2026
+
+I implemented timestamped logging in the RemoteOps Agent.
+
+The Agent writes operational events to:
+
+remoteops_IT24100970.log
+
+Logged events include:
+- Controller connections
+- Authentication success and failure
+- Commands
+- PUT file transfers
+- GET file transfers
+- Controller disconnects
+
+Each log entry contains a timestamp.
+
+A pthread mutex was used to protect the log file because multiple Controller threads may write to the log at the same time.
+
+Testing:
+I executed SYSINFO, LISTPROC, EXEC, PUT, GET and QUIT, then verified that the corresponding timestamped records were written to the personalised log file.
