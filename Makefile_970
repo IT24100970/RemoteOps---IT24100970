@@ -1,0 +1,16 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -pthread
+
+AGENT = agent_970
+CONTROLLER = controller_970
+
+all: $(AGENT) $(CONTROLLER)
+
+$(AGENT): agent_970.c
+	$(CC) $(CFLAGS) agent_970.c -o $(AGENT)
+
+$(CONTROLLER): controller_970.c
+	$(CC) $(CFLAGS) controller_970.c -o $(CONTROLLER)
+
+clean:
+	rm -f $(AGENT) $(CONTROLLER)

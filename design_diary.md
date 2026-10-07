@@ -272,3 +272,33 @@ A pthread mutex was used to protect the log file because multiple Controller thr
 
 Testing:
 I executed SYSINFO, LISTPROC, EXEC, PUT, GET and QUIT, then verified that the corresponding timestamped records were written to the personalised log file.
+
+
+## Step 13 - Makefile and Final Regression Testing
+Date 07 Oct 2026
+
+I completed the personalised Makefile and performed full regression testing of the RemoteOps implementation.
+
+The Makefile compiles both:
+- agent_970.c
+- controller_970.c
+
+using gcc with pthread support.
+
+Final tests covered:
+- Authentication
+- SYSINFO
+- LISTPROC
+- All five allowed EXEC commands
+- Rejected EXEC command
+- PUT file upload
+- GET file download
+- Missing-file error
+- UDP monitoring start and stop
+- QUIT
+- Timestamped logging
+- Five simultaneous Controller connections
+
+File integrity was verified using cmp and SHA-256 hashes.
+
+The Agent was also verified to be listening on the personalised TCP port 9410.
